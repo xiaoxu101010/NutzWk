@@ -30,10 +30,7 @@ import org.nutz.integration.quartz.QuartzManager;
 import org.nutz.ioc.Ioc;
 import org.nutz.ioc.impl.PropertiesProxy;
 import org.nutz.json.Json;
-import org.nutz.lang.Encoding;
-import org.nutz.lang.Files;
-import org.nutz.lang.Lang;
-import org.nutz.lang.Strings;
+import org.nutz.lang.*;
 import org.nutz.lang.random.R;
 import org.nutz.lang.util.NutMap;
 import org.nutz.log.Log;
@@ -43,10 +40,16 @@ import org.nutz.resource.Scans;
 import org.quartz.Scheduler;
 import redis.clients.jedis.Jedis;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 import java.io.File;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.charset.Charset;
+import java.sql.Driver;
+import java.sql.DriverManager;
 import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -55,6 +58,8 @@ import java.util.regex.Pattern;
  */
 public class Setup implements org.nutz.mvc.Setup {
     private static final Log log = Logs.get();
+    private static Connection rabbitmq_conn;
+    private static Channel rabbitmq_channel;
 
     public void init(NutConfig config) {
         try {
@@ -133,18 +138,17 @@ public class Setup implements org.nutz.mvc.Setup {
         try {
             String queue = R.UU32(), topicQueue = "topicQueue";
             ConnectionFactory factory = config.getIoc().get(ConnectionFactory.class, "rabbitmq_cf");
-            log.debug("RabbitMQ :::" + factory.getHost());
-            Connection conn = factory.newConnection();
-            Channel channel = conn.createChannel();
-            channel.queueDeclare(queue, true, true, false, null);
-            channel.queueDeclare(topicQueue, true, false, false, null);
-            channel.exchangeDeclare("topicExchange", BuiltinExchangeType.TOPIC, true);
-            channel.exchangeDeclare("fanoutExchange", BuiltinExchangeType.FANOUT, true);
-            channel.queueBind(queue, "fanoutExchange", "");
-            channel.queueBind(queue, "topicExchange", "topic.*");
-            //添加一个消费者,当系统参数/自定义路由修改时,重新初始化每个tomcat或jetty实例里的全局变量
-            channel.basicConsume(queue, false, "myConsumerTag",
-                    new DefaultConsumer(channel) {
+            log.debug("RabbitMQ:::" + factory.getHost());
+            rabbitmq_conn = factory.newConnection();
+            rabbitmq_channel = rabbitmq_conn.createChannel();
+            rabbitmq_channel.queueDeclare(queue, true, true, false, null);
+            rabbitmq_channel.queueDeclare(topicQueue, true, false, false, null);
+            rabbitmq_channel.exchangeDeclare("topicExchange", BuiltinExchangeType.TOPIC, true);
+            rabbitmq_channel.exchangeDeclare("fanoutExchange", BuiltinExchangeType.FANOUT, true);
+            rabbitmq_channel.queueBind(queue, "fanoutExchange", "");
+            rabbitmq_channel.queueBind(topicQueue, "topicExchange", "topic.#");
+            rabbitmq_channel.basicConsume(queue, false, "myConsumerTagFanout",
+                    new DefaultConsumer(rabbitmq_channel) {
                         @Override
                         public void handleDelivery(String consumerTag,
                                                    Envelope envelope,
@@ -154,11 +158,9 @@ public class Setup implements org.nutz.mvc.Setup {
                             String routingKey = envelope.getRoutingKey();
                             String exchange = envelope.getExchange();
                             NutMap params = Lang.fromBytes(body, NutMap.class);
-                            log.debug("RabbitMQ exchange=" + exchange + ",routingKey=" + routingKey + ",params=" + Json.toJson(params));
+                            log.debug("RabbitMQ fanoutExchange=" + exchange + ",routingKey=" + routingKey + ",params=" + Json.toJson(params));
                             long deliveryTag = envelope.getDeliveryTag();
                             switch (exchange) {
-                                case "topicExchange"://主题模式,只需一个消费者消费
-                                    break;
                                 case "fanoutExchange"://广播模式,每个消费者都会消费
                                     switch (routingKey) {
                                         case "sysconfig":
@@ -176,7 +178,33 @@ public class Setup implements org.nutz.mvc.Setup {
                                     break;
                             }
                             // (process the message components here ...)
-                            channel.basicAck(deliveryTag, false);
+                            rabbitmq_channel.basicAck(deliveryTag, false);
+                        }
+                    });
+            rabbitmq_channel.basicConsume(topicQueue, false, "myConsumerTagTopic",
+                    new DefaultConsumer(rabbitmq_channel) {
+                        @Override
+                        public void handleDelivery(String consumerTag,
+                                                   Envelope envelope,
+                                                   AMQP.BasicProperties properties,
+                                                   byte[] body)
+                                throws IOException {
+                            String routingKey = envelope.getRoutingKey();
+                            String exchange = envelope.getExchange();
+                            NutMap params = Lang.fromBytes(body, NutMap.class);
+                            log.debug("RabbitMQ topicExchange=" + exchange + ",routingKey=" + routingKey + ",params=" + Json.toJson(params));
+                            long deliveryTag = envelope.getDeliveryTag();
+                            switch (exchange) {
+                                case "topicExchange"://主题模式,只需一个消费者消费
+                                    switch (routingKey) {
+                                        case "topic.test.me":
+                                            log.debug("topic.test.me.......");
+                                            break;
+                                    }
+                                    break;
+                            }
+                            // (process the message components here ...)
+                            rabbitmq_channel.basicAck(deliveryTag, false);
                         }
                     });
             Globals.RabbitMQEnabled = true;
@@ -934,10 +962,45 @@ public class Setup implements org.nutz.mvc.Setup {
     }
 
     public void destroy(NutConfig config) {
+        try {
+            if (rabbitmq_channel != null)
+                rabbitmq_channel.close();
+            if (rabbitmq_conn != null)
+                rabbitmq_conn.close();
+        } catch (Exception e) {
+
+        }
+        // 非mysql数据库,或多webapp共享mysql驱动的话,以下语句删掉
+        try {
+            Mirror.me(Class.forName("com.mysql.jdbc.AbandonedConnectionCleanupThread")).invoke(null, "shutdown");
+        } catch (Throwable e) {
+        }
         // 解决quartz有时候无法停止的问题
         try {
             config.getIoc().get(Scheduler.class).shutdown(true);
         } catch (Exception e) {
+        }
+        // 解决com.alibaba.druid.proxy.DruidDriver和com.mysql.jdbc.Driver在reload时报warning的问题
+        // 多webapp共享mysql驱动的话,以下语句删掉
+        Enumeration<Driver> en = DriverManager.getDrivers();
+        while (en.hasMoreElements()) {
+            try {
+                Driver driver = en.nextElement();
+                String className = driver.getClass().getName();
+                log.debug("deregisterDriver: " + className);
+                DriverManager.deregisterDriver(driver);
+            } catch (Exception e) {
+            }
+        }
+        try {
+            MBeanServer mbeanServer = ManagementFactory.getPlatformMBeanServer();
+            ObjectName objectName = new ObjectName("com.alibaba.druid:type=MockDriver");
+            if (mbeanServer.isRegistered(objectName))
+                mbeanServer.unregisterMBean(objectName);
+            objectName = new ObjectName("com.alibaba.druid:type=DruidDriver");
+            if (mbeanServer.isRegistered(objectName))
+                mbeanServer.unregisterMBean(objectName);
+        } catch (Exception ex) {
         }
     }
 }

@@ -158,8 +158,45 @@ public class BaseServiceImpl<T> extends EntityService<T> implements BaseService<
      *            注意：如果是集合，数组或者 Map，所有的对象必须类型相同，否则可能会出错
      * @return 插入后的对象
      */
-    public T insert(T obj) {
+    public <T> T insert(T obj) {
         return this.dao().insert(obj);
+    }
+
+    /**
+     * 将一个对象按FieldFilter过滤后,插入到一个数据源。
+     * <p/>
+     * <code>dao.insert(pet, FieldFilter.create(Pet.class, FieldMatcher.create(false)));</code>
+     *
+     * @param obj    要被插入的对象
+     * @param filter 字段过滤器, 其中FieldMatcher.isIgnoreId生效
+     * @return 插入后的对象
+     * @see org.nutz.dao.Dao#insert(Object)
+     */
+    public <T> T insert(T obj, FieldFilter filter) {
+        return this.dao().insert(obj, filter);
+    }
+
+    /**
+     * 根据对象的主键(@Id/@Name/@Pk)先查询, 如果存在就更新, 不存在就插入
+     *
+     * @param obj
+     *            对象
+     * @return 原对象
+     */
+    public <T> T insertOrUpdate(T obj) {
+        return this.dao().insertOrUpdate(obj);
+    }
+
+    /**
+     * 根据对象的主键(@Id/@Name/@Pk)先查询, 如果存在就更新, 不存在就插入
+     *
+     * @param obj               对象
+     * @param insertFieldFilter 插入时的字段过滤, 可以是null
+     * @param updateFieldFilter 更新时的字段过滤,可以是null
+     * @return 原对象
+     */
+    public <T> T insertOrUpdate(T obj, FieldFilter insertFieldFilter, FieldFilter updateFieldFilter) {
+        return this.dao().insertOrUpdate(obj, insertFieldFilter, updateFieldFilter);
     }
 
     /**
@@ -178,8 +215,50 @@ public class BaseServiceImpl<T> extends EntityService<T> implements BaseService<
      * @param obj
      * @return
      */
-    public T fastInsert(T obj) {
+    public <T> T fastInsert(T obj) {
         return this.dao().fastInsert(obj);
+    }
+
+    /**
+     * 将对象插入数据库同时，也将符合一个正则表达式的所有关联字段关联的对象统统插入相应的数据库
+     * <p>
+     * 关于关联字段更多信息，请参看 '@One' | '@Many' | '@ManyMany' 更多的描述
+     *
+     * @param obj   数据对象
+     * @param regex 正则表达式，描述了什么样的关联字段将被关注。如果为 null，则表示全部的关联字段都会被插入
+     * @return 数据对象本身
+     * @see org.nutz.dao.entity.annotation.One
+     * @see org.nutz.dao.entity.annotation.Many
+     * @see org.nutz.dao.entity.annotation.ManyMany
+     */
+    public <T> T insertWith(T obj, String regex) {
+        return this.dao().insertWith(obj, regex);
+    }
+
+    /**
+     * 根据一个正则表达式，仅将对象所有的关联字段插入到数据库中，并不包括对象本身
+     *
+     * @param obj   数据对象
+     * @param regex 正则表达式，描述了什么样的关联字段将被关注。如果为 null，则表示全部的关联字段都会被插入
+     * @return 数据对象本身
+     * @see org.nutz.dao.entity.annotation.One
+     * @see org.nutz.dao.entity.annotation.Many
+     * @see org.nutz.dao.entity.annotation.ManyMany
+     */
+    public <T> T insertLinks(T obj, String regex) {
+        return this.dao().insertLinks(obj, regex);
+    }
+
+    /**
+     * 将对象的一个或者多个，多对多的关联信息，插入数据表
+     *
+     * @param obj   对象
+     * @param regex 正则表达式，描述了那种多对多关联字段将被执行该操作
+     * @return 对象自身
+     * @see org.nutz.dao.entity.annotation.ManyMany
+     */
+    public <T> T insertRelation(T obj, String regex) {
+        return this.dao().insertRelation(obj, regex);
     }
 
     /**
@@ -223,6 +302,91 @@ public class BaseServiceImpl<T> extends EntityService<T> implements BaseService<
      */
     public int update(String tableName, Chain chain, Condition cnd) {
         return this.dao().update(tableName, chain, cnd);
+    }
+
+    /**
+     * 将对象更新的同时，也将符合一个正则表达式的所有关联字段关联的对象统统更新
+     * <p>
+     * 关于关联字段更多信息，请参看 '@One' | '@Many' | '@ManyMany' 更多的描述
+     *
+     * @param obj   数据对象
+     * @param regex 正则表达式，描述了什么样的关联字段将被关注。如果为 null，则表示全部的关联字段都会被更新
+     * @return 数据对象本身
+     * @see org.nutz.dao.entity.annotation.One
+     * @see org.nutz.dao.entity.annotation.Many
+     * @see org.nutz.dao.entity.annotation.ManyMany
+     */
+    public <T> T updateWith(T obj, String regex) {
+        return this.dao().updateWith(obj, regex);
+    }
+
+    /**
+     * 根据一个正则表达式，仅更新对象所有的关联字段，并不包括对象本身
+     *
+     * @param obj   数据对象
+     * @param regex 正则表达式，描述了什么样的关联字段将被关注。如果为 null，则表示全部的关联字段都会被更新
+     * @return 数据对象本身
+     * @see org.nutz.dao.entity.annotation.One
+     * @see org.nutz.dao.entity.annotation.Many
+     * @see org.nutz.dao.entity.annotation.ManyMany
+     */
+    public <T> T updateLinks(T obj, String regex) {
+        return this.dao().updateLinks(obj, regex);
+    }
+
+    /**
+     * 多对多关联是通过一个中间表将两条数据表记录关联起来。
+     * <p>
+     * 而这个中间表可能还有其他的字段，比如描述关联的权重等
+     * <p>
+     * 这个操作可以让你一次更新某一个对象中多个多对多关联的数据
+     *
+     * @param classOfT 对象类型
+     * @param regex    正则表达式，描述了那种多对多关联字段将被执行该操作
+     * @param chain    针对中间关联表的名值链。
+     * @param cnd      针对中间关联表的 WHERE 条件
+     * @return 共有多少条数据被更新
+     * @see org.nutz.dao.entity.annotation.ManyMany
+     */
+    public int updateRelation(Class<?> classOfT, String regex, Chain chain, Condition cnd) {
+        return this.dao().updateRelation(classOfT, regex, chain, cnd);
+    }
+
+    /**
+     * 基于版本的更新，版本不一样无法更新到数据
+     *
+     * @param obj 需要更新的对象, 必须有version属性
+     * @return 若更新成功, 大于0, 否则小于0
+     */
+    public int updateWithVersion(Object obj) {
+        return this.dao().updateWithVersion(obj);
+    }
+
+    /**
+     * 基于版本的更新，版本不一样无法更新到数据
+     *
+     * @param obj         需要更新的对象, 必须有version属性
+     * @param fieldFilter 需要过滤的字段设置
+     * @return 若更新成功, 大于0, 否则小于0
+     */
+    public int updateWithVersion(Object obj, FieldFilter fieldFilter) {
+        return this.dao().updateWithVersion(obj, fieldFilter);
+    }
+
+    /**
+     * 乐观锁, 以特定字段的值作为限制条件,更新对象,并自增该字段.
+     * <p/>
+     * 执行的sql如下:
+     * <p/>
+     * <code>update t_user set age=30, city="广州", version=version+1 where name="wendal" and version=124;</code>
+     *
+     * @param obj         需要更新的对象, 必须带@Id/@Name/@Pk中的其中一种.
+     * @param fieldFilter 需要过滤的属性. 若设置了哪些字段不更新,那务必确保过滤掉fieldName的字段
+     * @param fieldName   参考字段的Java属性名.默认是"version",可以是任意数值字段
+     * @return 若更新成功, 返回值大于0, 否则小于等于0
+     */
+    public int updateAndIncrIfMatch(Object obj, FieldFilter fieldFilter, String fieldName) {
+        return this.dao().updateAndIncrIfMatch(obj, fieldFilter, fieldName);
     }
 
     /**
@@ -457,9 +621,9 @@ public class BaseServiceImpl<T> extends EntityService<T> implements BaseService<
     /**
      * 分页关联字段查询
      *
-     * @param cnd 查询条件
+     * @param cnd      查询条件
      * @param linkName 关联字段，支持正则 ^(a|b)$
-     * @param pager 分页对象
+     * @param pager    分页对象
      * @return
      */
     public List<T> query(Condition cnd, String linkName, Pager pager) {

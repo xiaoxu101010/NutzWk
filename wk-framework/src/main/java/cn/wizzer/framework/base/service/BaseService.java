@@ -3,10 +3,7 @@ package cn.wizzer.framework.base.service;
 import cn.wizzer.framework.page.Pagination;
 import cn.wizzer.framework.page.datatable.DataTableColumn;
 import cn.wizzer.framework.page.datatable.DataTableOrder;
-import org.nutz.dao.Chain;
-import org.nutz.dao.Cnd;
-import org.nutz.dao.Condition;
-import org.nutz.dao.Dao;
+import org.nutz.dao.*;
 import org.nutz.dao.entity.Record;
 import org.nutz.dao.pager.Pager;
 import org.nutz.dao.sql.Sql;
@@ -44,11 +41,23 @@ public interface BaseService<T> {
 
     boolean exists(Object... pks);
 
-    T insert(T obj);
+    <T> T insert(T obj);
+
+    <T> T insert(T obj, FieldFilter filter);
+
+    <T> T insertOrUpdate(T obj);
+
+    <T> T insertOrUpdate(T obj, FieldFilter insertFieldFilter, FieldFilter updateFieldFilter);
 
     void insert(String tableName, Chain chain);
 
-    T fastInsert(T obj);
+    <T> T fastInsert(T obj);
+
+    <T> T insertWith(T obj, String regex);
+
+    <T> T insertLinks(T obj, String regex);
+
+    <T> T insertRelation(T obj, String regex);
 
     int update(Object obj);
 
@@ -57,6 +66,18 @@ public interface BaseService<T> {
     int update(Chain chain, Condition cnd);
 
     int update(String tableName, Chain chain, Condition cnd);
+
+    <T> T updateWith(T obj, String regex);
+
+    <T> T updateLinks(T obj, String regex);
+
+    int updateRelation(Class<?> classOfT, String regex, Chain chain, Condition cnd);
+
+    int updateWithVersion(Object obj);
+
+    int updateWithVersion(Object obj, FieldFilter filter);
+
+    int updateAndIncrIfMatch(Object obj, FieldFilter fieldFilter, String fieldName);
 
     int getMaxId();
 
